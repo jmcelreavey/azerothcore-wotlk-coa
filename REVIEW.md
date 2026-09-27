@@ -23,10 +23,10 @@ listed per branch.
 
 ---
 
-## fix/barbarian-weapon-ranks (d53b64229)
+## fix/barbarian-weapon-ranks (d53b64229 + review 165473e)
 
 ### #5124 Brutal Swing higher ranks refuse one-handed weapons: **CORRECT**
-### #5135 Decapitate higher ranks refuse one-handed weapons: **CORRECT**
+### #5135 Decapitate higher ranks refuse one-handed weapons: **CORRECT** (gameplay fix); scenario **FIXED-IN-REVIEW (165473e)**
 
 - **Registration.** `ClearContradictingWeaponSlotRequirement` runs from `ApplyAscensionBarbarianSpellChanges`
   (`src/server/coa/AscensionBarbarian.cpp:68`). That function is called from `ApplyAscensionClassMechanics`
@@ -50,14 +50,19 @@ listed per branch.
   because that is where the ADB's "in Bag" rendering comes from. If the client pre-checks equipped-item
   requirements, the button can stay red and the error can appear with no server round trip. The server fix is
   still necessary, but it may not be sufficient on its own.
-- **Risk to confirm on the PC (scenario).** I could not read Decapitate's `TargetAuraState` or its health gate. If
-  it is an execute-style spell, casting it on a full-health target fails before `CheckItems` runs. The scenario's
-  `cast_failure == 0` or `== 29` asserts would then fail for both ranks. That is a test fault, not a gameplay one.
+- **Scenario defect, fixed in review (165473e).** Per the Ascension DB tooltips (supplied by John, because the ADB
+  is blocked in this sandbox), Decapitate 804414 and 806905 are "only usable on enemies below 35% health". The
+  server enforces that: `SpellInfo::CheckTarget` rejects a target without the `TargetAuraState`
+  (`SpellInfo.cpp:2031`), `Unit.cpp:658` sets `AURA_STATE_HEALTHLESS_35_PERCENT` only below 35%, and the target
+  check runs before `CheckItems`. At full health, therefore, every Decapitate cast in the scenario failed on the
+  aura state: the one-handed casts could never reach the weapon check, and the unarmed control could never return
+  29. 165473e adds `set_health` steps that take both targets to 150000/500000 (30%) before the first Decapitate
+  cast, and records this in the contract. `run.py validate` accepts the scenario (34 steps).
 
 **In game.** Level 26 Barbarian: `.additem 25`, equip it in the main hand, `.learn 500913`, `.learn 500996`,
 `.learn 804414`, `.learn 806905`, then `.cast 500996` on a dummy. Expected: the button is not red, and the combat
-log shows a Brutal Swing hit. Repeat with `.cast 806905`, lowering the target's health first if Decapitate has an
-execute gate. Unequip and cast again: expect "Must have a ... equipped" (reason 29). The startup log should show
+log shows a Brutal Swing hit. Bring the target below 35% health (`.damage`, or fight it down), then repeat with
+`.cast 806905`. Unequip and cast again: expect "Must have a ... equipped" (reason 29). The startup log should show
 `Cleared the equipment slot requirement of Barbarian rank ...` 10 times (7 Brutal Swing + 3 Decapitate) and no
 `Skipped unexpected Barbarian weapon requirement record` line.
 
@@ -156,10 +161,12 @@ new Warp button, and one `SMSG_LEARNED_SPELL` for 500587 per session. Casting Wa
   (`Player.cpp:17239-17249`). `KnownRank` resolves the Runeblade rank the player knows, so every rank is handled.
 - `HasAura(806698, own GUID)` is correct for a self-cast passive talent.
 - The added restore stays inside the existing `HasAura(SPELL_RIFTBLADE 92154)` branch. The tooltip's "now
-  refreshes 3" reads as upgrading Riftblade's existing 1-charge refresh, so that matches.
+  refreshes 3" reads as upgrading Riftblade's existing 1-charge refresh, so that matches. John confirmed this
+  against the Riftblade 92154 and Eternal Magic 806698 tooltips in the ADB.
 - **Defect found in review.** The tooltip names only Primordial Blast, but `4917df4` also gave 3 charges after
   Smolder 801087. Smolder is its own trainer rank chain (`AscensionSpellProgressionData.h:2664-2669`,
   502623-502628), not an override of Primordial Blast. **696ed17** restricts the 3 charges to Primordial Blast.
+  The Riftblade and Eternal Magic tooltips support this (verified by John against the ADB).
 - **Harness break introduced by `4917df4`.** The `runemaster_secondary` fixture stubbed
   `RestoreSpellCharge(uint32)` with one argument, so the new two-argument call does not compile. That harness uses
   MSVC, so it would fail on your PC. 696ed17 updates the stub and adds asserts: 1 charge from Smolder, 1 from
@@ -183,14 +190,11 @@ new Warp button, and one `SMSG_LEARNED_SPELL` for 500587 per session. Casting Wa
   verdict holds, but its evidence line ("no node") is inaccurate.
 - I spot-checked the group-A and group-B gaps (520138, 520237, 800758, 803013, 705563): none has a script, a SQL
   row or a scenario. Those verdicts hold.
-- **Doubtful "false positive" verdicts (DEFERRED, reclassify as possible dead clauses):**
-  - #2731 Primordial Power (705556, 705557) carries `Apply Aura: Dummy 4`.
-  - #2738 Focusing Crystals (705564, 707879) carries `Dummy: Unknown 5`.
-  - #2133 Glyphic Infusion (800733) is three bare `Trigger Spell` effects.
-
-  None of those ids appears anywhere in `src/`, `modules/`, the pending SQL or the scenarios, and a Dummy aura does
-  nothing without a script. Each needs its tooltip checked: if the dummy is only a tooltip value holder, the
-  verdict stands; otherwise the clause is dead.
+- **#2731, #2738 and #2133: false positive, VERIFIED.** I first doubted these "false positive" verdicts. Primordial
+  Power 705556/705557 carries `Apply Aura: Dummy 4`, Focusing Crystals 705564/707879 carries `Dummy: Unknown 5`,
+  and Glyphic Infusion 800733 is three bare `Trigger Spell` effects, and none of those ids appears in `src/`,
+  `modules/`, the pending SQL or the scenarios. John checked the ADB tooltips, and they support the audit: the named
+  clauses are covered by the native effects, so the audit's verdicts stand.
 
 ---
 
@@ -235,22 +239,20 @@ full-health/out-of-combat re-evaluation rule is still unfixed.
 | `fix/runemaster-player-reports` | `696ed17` fix(CoA/Runemaster): Eternal Magic's three charges come from Primordial Blast only | pushed |
 | `fix/runemaster-player-reports` | `9feb61d` fix(CoA/Runemaster): re-sync the Runeshroud or Waveforged marker on login | pushed (head) |
 | `fix/mob-scaling` | `df5a7da` docs(CoA/Scaling): document the shipped level-lift cap and the bot rule | pushed (fast-forward) |
+| `fix/barbarian-weapon-ranks` | `165473e` test(CoA/Barbarian): cast Decapitate on a target below 35% health | pushed (fast-forward) |
 
-No review commits on `fix/barbarian-weapon-ranks` or `fix/summon-kill-credit`: nothing on either branch can be
-fixed from source here. The remaining items there are in-game confirmations, or the deferred scope above.
+No review commits on `fix/summon-kill-credit`: nothing on it can be fixed from source here. The remaining items
+there are in-game confirmations, or the deferred scope above. From 165473e onwards, every push is fast-forward
+only.
 
 ## Not fixed, and why
 
 - **Barbarian: whether the client refuses the cast itself.** This depends on the client's own `Spell.dbc` and
   cannot be fixed on the server. Confirm it in game.
-- **Barbarian: a possible execute gate on Decapitate in the scenario.** This needs the DBC's `TargetAuraState`,
-  which is not in the repo. If the scenario fails with a reason other than 0 or 29, lower the target's health
-  before the Decapitate casts.
 - **Barbarian: Templar/Reaper copies of the slot-mask artefact.** These need the client DBC to confirm the ids;
   the handoff's `8054099` is not a valid 6-digit CoA id.
 - **Summons: #4875 and #4119, kills with no player input.** The maintainer ruled this is not wanted, and it would
   need `m_ControlledByPlayer`.
-- **Audit: doubtful verdicts #2731, #2738, #2133.** These need the tooltips, and the ADB is blocked here.
 - **Stale harness fixtures on `main`** (`runemaster_passives`, `runemaster_secondary`). These predate these branches.
 
 ## Verification
@@ -260,7 +262,10 @@ fixed from source here. The remaining items there are in-game confirmations, or 
   `VERIFY ALL: PASSED .cache/verify-all/20260927-192525/report.json`.
 - `fix/mob-scaling` at df5a7da: the same command gave
   `VERIFY ALL: PASSED .cache/verify-all/20260927-192520/report.json`.
-- Both results are for the source stage only. Build, unit and gameplay were SKIPPED.
+- `fix/barbarian-weapon-ranks` at 165473e: the same command gave
+  `source PASSED 37.9 s 10 passed, 0 failed` and
+  `VERIFY ALL: PASSED .cache/verify-all/20260927-194723/report.json`.
+- All three results are for the source stage only. Build, unit and gameplay were SKIPPED.
   `--stages harness --harness runemaster_passives` is UNAVAILABLE here
   (`requires workspace tools missing ... Test-LocalLoginCollections.py`), so the two Runemaster harnesses were run
   by hand with g++, as described above.
