@@ -11,8 +11,9 @@ replaced only my own commit on top of `4917df4`.
 
 **Live-parity sources: blocked.** The sandbox's egress proxy refuses a CONNECT (403) to
 `ascension-db.ascension-archive.workers.dev`, `hertigservices.github.io` and `ascension-archive.vercel.app`, and
-the `hertigservices/ascension-data` repository is outside this session's GitHub scope. Nothing below is
-re-checked against the ADB. The ADB facts quoted in the handoff are carried forward as the author's claims, and my
+the `hertigservices/ascension-data` repository is outside this session's GitHub scope. I could not query the ADB
+myself. John checked it for this review: the Decapitate 35% health gate, the Riftblade 92154 and Eternal Magic
+806698 tooltips, and #2731 / #2738 / #2133. Those points are marked as verified where they appear. The ADB facts quoted in the handoff are carried forward as the author's claims, and my
 own checks use repo data only: `AscensionSpellProgressionData.h`, `SpellbookTreeSpellData.h`,
 `SpellbookNotifyData.h`, `item_template` and the source.
 
